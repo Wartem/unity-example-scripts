@@ -1,137 +1,160 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
+using System.Collections.Generic;
 
 /// <summary>
-/// Creation of gameObjects at 3D coordinates. 
-/// I've taken out some example code from a 3D project (prototype) of mine.
-/// In it's context, connected to the Unity Editor, this code allows for 
-/// creation of gameobjects in form of objects (the prefab is a cube/platform).
-/// Created objects are set to a Vector3 pos (x,y,z).
+/// This is example code from a 3D project (prototype) of mine.
+/// Manages the creation, positioning, and state of platform GameObjects.
 /// </summary>
-
-public class ExampleFunctions : MonoBehaviour
+public class PlatformManager : MonoBehaviour
 {
+    [SerializeField] private GameObject platformCubePrefab;
+    [SerializeField] private float platformSpacing = 3f;
+    [SerializeField] private float minBrightness = 0.7f;
+    [SerializeField] private Color defaultColor = Color.black;
 
-    private GameObject currentPlatform; // Set from Instantiated platformCube
-    public GameObject platformCubePrefab; // Premade object set from the Unity Editor (public)
+    private GameObject currentPlatform;
+    private List<GameObject> allPlatforms = new List<GameObject>();
 
-    void Start()
+    private void Start()
     {
-        currentPlatform = Instantiate(platformCubePrefab);
-        currentPlatform.transform.position = new Vector3(0, 10, 0);
-        currentPlatform.SetActive(true);
-        setPlatformState(currentPlatform, 1);
+        if (platformCubePrefab == null)
+        {
+            Debug.LogError("Platform prefab not assigned!");
+            return;
+        }
 
-        // Example usage of the main function in this file: makeNewPlatform:
-        makeNewPlatform(currentPlatform.transform.position.x - 
-            (currentPlatform.GetComponent<Renderer>().bounds.size.x),
-                    currentPlatform.transform.position.y,
-                    currentPlatform.transform.position.z);
+        CreateInitialPlatform(new Vector3(0, 10, 0));
+        CreateNewPlatformAdjacentToCurrent();
     }
 
-    void deleteIntersects(GameObject doNotDestroy)
+    private void CreateInitialPlatform(Vector3 position)
     {
-        GameObject[] platforms = GameObject.FindGameObjectsWithTag("Platform");
+        currentPlatform = InstantiatePlatform(position);
+        SetPlatformState(currentPlatform, 1);
+    }
 
-        for (int e = 0; e < platforms.Length; e++)
+    private void CreateNewPlatformAdjacentToCurrent()
+    {
+        if (currentPlatform == null) return;
+
+        Renderer renderer = currentPlatform.GetComponent<Renderer>();
+        if (renderer == null) return;
+
+        Vector3 newPosition = currentPlatform.transform.position;
+        newPosition.x -= renderer.bounds.size.x + platformSpacing;
+
+        CreateAndSetupPlatform(newPosition);
+    }
+
+    private void CreateAndSetupPlatform(Vector3 position)
+    {
+        if (DestroyObjectsInsideSphere(position, platformSpacing))
         {
-            for (int i = 0; i < platforms.Length; i++)
+            Debug.Log("Intersecting object(s) detected and removed.");
+        }
+
+        GameObject newPlatform = InstantiatePlatform(position);
+        if (newPlatform != null)
+        {
+            SetPlatformState(newPlatform, 0);
+            if (currentPlatform != null)
             {
-                if (platforms[i] != null &&
-                    platforms[i] != currentPlatform &&
-                    platforms[i] != platforms[e] &&
-                    platforms[i] != doNotDestroy &&
-               platforms[e].GetComponent<BoxCollider>().bounds.Intersects(platforms[i].GetComponent<BoxCollider>().bounds)
-               )
-                {
-                    Debug.Log("Destroy " + i);
-                    Destroy(platforms[i]);
-                }
+                SetPlatformState(currentPlatform, 1);
             }
+            RemoveIntersectingPlatforms(newPlatform);
+            currentPlatform = newPlatform;
         }
     }
 
-    public Color getBlackColor()
+    private GameObject InstantiatePlatform(Vector3 position)
     {
-        return new Color(0, 0, 0);
-    }
-
-    public Color getRandomBrightColor()
-    {
-        return new Color(
-            UnityEngine.Random.Range(0.7f, 1f),
-            UnityEngine.Random.Range(0.7f, 1f),
-            UnityEngine.Random.Range(0.7f, 1f));
+        GameObject platform = Instantiate(platformCubePrefab, position, Quaternion.identity);
+        if (platform != null)
+        {
+            Renderer renderer = platform.GetComponent<Renderer>();
+            if (renderer != null)
+            {
+                renderer.material.color = defaultColor;
+            }
+            platform.SetActive(true);
+            allPlatforms.Add(platform);
+        }
+        return platform;
     }
 
     /// <summary>
-    /// State can either be set to 0 or 1.
-    /// 0 is the first state (black color). State 1 is set to objects when the player
-    /// intersects with them for the first time (random color set).
+    /// Sets the state of the platform and updates its color accordingly.
     /// </summary>
-    /// <param name="gameObjectToUse"></param>
-    /// <param name="state">0 for not yet used. 1 for activated by player intersection.</param>
-    public void setPlatformState(GameObject gameObjectToUse, int state)
+    /// <param name="platform">Platform to update.</param>
+    /// <param name="state">State to set (0 for default, 1 for activated).</param>
+    private void SetPlatformState(GameObject platform, int state)
     {
-        if (gameObjectToUse.tag == "Platform" || gameObjectToUse.tag == "PlatformChild")
+        if (platform == null) return;
+
+        PlatformData platformData = platform.GetComponent<PlatformData>();
+        if (platformData == null) return;
+
+        platformData.state = state;
+
+        Color color = state == 0 ? defaultColor : GetRandomBrightColor();
+        UpdatePlatformColor(platform, color);
+    }
+
+    private void UpdatePlatformColor(GameObject platform, Color color)
+    {
+        if (platform == null) return;
+
+        Renderer[] renderers = platform.GetComponentsInChildren<Renderer>();
+        foreach (var renderer in renderers)
         {
-            // PlatformData is pre-added to the prefab in the Unity Editor.
-            // In which every object gets a "public int state = 0;"
-            PlatformData platformData = gameObjectToUse.GetComponent<PlatformData>(); 
-            platformData.state = state;
-
-            Color colorToUse = getBlackColor();
-
-            if (state == 0)
+            if (renderer != null && renderer.material != null)
             {
-                colorToUse = getBlackColor();
+                renderer.material.color = color;
             }
-            else if (state == 1)
-            {
-                colorToUse = getRandomBrightColor();
-            }
-
-            gameObjectToUse.GetComponent<Renderer>().material.color = colorToUse;
-            int children = gameObjectToUse.transform.childCount;
-            for (int i = 0; i < children; i++)
-            {
-                gameObjectToUse.transform.GetChild(i).gameObject.GetComponent<Renderer>().material.color = colorToUse;
-            }
-        }
-        else
-        {
-            Debug.Log("setPlatformState failed");
         }
     }
 
-    public bool destroyObjectsInsideVector(Vector3 newPos )
+    private void RemoveIntersectingPlatforms(GameObject newPlatform)
     {
+        if (newPlatform == null) return;
 
-        Collider[] hitColliders = Physics.OverlapSphere(newPos
-            , 3f);
+        BoxCollider newCollider = newPlatform.GetComponent<BoxCollider>();
+        if (newCollider == null) return;
 
-        foreach (var hitCollider in hitColliders)
+        for (int i = allPlatforms.Count - 1; i >= 0; i--)
         {
-            Destroy(hitCollider.gameObject, 0);
-        }
+            GameObject platform = allPlatforms[i];
+            if (platform == null || platform == currentPlatform || platform == newPlatform) continue;
 
+            BoxCollider platformCollider = platform.GetComponent<BoxCollider>();
+            if (platformCollider != null && platformCollider.bounds.Intersects(newCollider.bounds))
+            {
+                Debug.Log($"Destroying intersecting platform: {platform.name}");
+                allPlatforms.RemoveAt(i);
+                Destroy(platform);
+            }
+        }
+    }
+
+    private bool DestroyObjectsInsideSphere(Vector3 position, float radius)
+    {
+        Collider[] hitColliders = Physics.OverlapSphere(position, radius);
+        foreach (var collider in hitColliders)
+        {
+            if (collider != null && collider.gameObject != null)
+            {
+                Destroy(collider.gameObject);
+            }
+        }
         return hitColliders.Length > 0;
     }
 
-    private void makeNewPlatform(float x, float y, float z)
+    private Color GetRandomBrightColor()
     {
-
-        if (destroyObjectsInsideVector(new Vector3(x, y, z)))
-        {
-            Debug.Log("Vector inside new platform detected. Old object deleted.");
-        }
-
-        GameObject newGameObj = Instantiate(platformCubePrefab);
-        newGameObj.transform.position = new Vector3(x, y, z);
-        newGameObj.GetComponent<Renderer>().material.color = getBlackColor();
-        setPlatformState(newGameObj, 0);
-        setPlatformState(currentPlatform, 1);
-        deleteIntersects(newGameObj);
+        return new Color(
+            Random.Range(minBrightness, 1f),
+            Random.Range(minBrightness, 1f),
+            Random.Range(minBrightness, 1f)
+        );
     }
-    }
+}
